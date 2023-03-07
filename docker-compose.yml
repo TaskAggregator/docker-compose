@@ -1,0 +1,107 @@
+version: '0.0.1'
+services:
+  postgres-db:
+    image: "postgres:15"
+    container_name: task-tracker-db
+    environment:
+      POSTGRES_DB: "task_tracker"
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASSWORD: "root"
+    volumes:
+      - postgres-data:/var/lib/postgres
+    ports:
+      - 5432:5432
+
+  kafka-1:
+    image: 'bitnami/kafka:latest'
+    container_name: kafka-1
+    ports:
+      - 9092:9092
+    expose:
+      - "9093"
+    environment:
+      KAFKA_CFG_BROKER_ID: "1"
+      KAFKA_ENABLE_KRAFT: "yes"
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+      KAFKA_CFG_PROCESS_ROLES: "broker,controller"
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "INSIDE"
+      KAFKA_CFG_LISTENERS: "INSIDE://0.0.0.0:9093,OUTSIDE://0.0.0.0:9092,CONTROLLER://:9094"
+      KAFKA_CFG_ADVERTISED_LISTENERS: "INSIDE://kafka-1:9093,OUTSIDE://localhost:9092"
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,INSIDE:PLAINTEXT,OUTSIDE:PLAINTEXT"
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "1@127.0.0.1:9094"
+      KAFKA_KRAFT_CLUSTER_ID: "L0ZEQh1yTbGhNNUE7-6wSQ"
+    volumes:
+      - kafka:/bitnami/kafka
+
+  akhq:
+    image: tchiotludo/akhq:dev
+    environment:
+      AKHQ_CONFIGURATION: |
+        akhq:
+          connections:
+            docker-kafka-server:
+              properties:
+                bootstrap.servers: "kafka-1:9093"
+    ports:
+      - 9090:8080
+      - 28081:28081
+    depends_on:
+      - kafka-1
+
+  eureka-server:
+    image: "caspaze/eureka-server:0.0.1"
+    container_name: eureka-server
+    hostname: eureka-server
+    ports:
+      - 8761:8761
+
+  api-gateway:
+    image: "caspaze/api-gateway:0.0.1"
+    container_name: api-gateway
+    environment:
+      EUREKA_URL: "http://eureka-server:8761/eureka/"
+    ports:
+      - 8080:8080
+    depends_on:
+      - eureka-server
+
+  auth-service:
+    image: "caspaze/auth-service:0.0.1"
+    container_name: auth-service
+    environment:
+      DATABASE_URL: "jdbc:postgresql://postgres-db:5432/task_tracker"
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASSWORD: "root"
+      EUREKA_URL: "http://eureka-server:8761/eureka/"
+      KAFKA_URL: "kafka-1:9093"
+    ports:
+      - 8081:8080
+    depends_on:
+      - eureka-server
+      - postgres-db
+      - kafka-1
+
+  task-service:
+    image: "caspaze/task-service:0.0.1"
+    container_name: task-service
+    environment:
+      DATABASE_URL: "jdbc:postgresql://postgres-db:5432/task_tracker"
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASSWORD: "root"
+      EUREKA_URL: "http://eureka-server:8761/eureka/"
+      KAFKA_URL: "kafka-1:9093"
+    ports:
+      - 8082:8080
+    depends_on:
+      - eureka-server
+      - postgres-db
+      - kafka-1
+
+
+networks:
+  backend:
+
+volumes:
+  postgres-data:
+  kafka:
